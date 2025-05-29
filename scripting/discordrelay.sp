@@ -96,15 +96,15 @@ char sCommbanTypes[][] = {
 public void OnPluginStart()
 {
     // Keys/Tokens
-    g_cvSteamApiKey = CreateConVar("discrelay_steamapikey", "", "Your Steam API key (needed for discrelay_servertodiscordavatars)");
-    g_cvDiscordBotToken = CreateConVar("discrelay_discordbottoken", "", "Your discord bot key (needed for discrelay_discordtoserver)");
-    g_cvDiscordWebhook = CreateConVar("discrelay_discordwebhook", "", "Webhook for discord channel (needed for discrelay_servertodiscord)");
+    g_cvSteamApiKey = CreateConVar("discrelay_steamapikey", "", "Your Steam API key (needed for discrelay_servertodiscordavatars)", FCVAR_PROTECTED);
+    g_cvDiscordBotToken = CreateConVar("discrelay_discordbottoken", "", "Your discord bot key (needed for discrelay_discordtoserver)", FCVAR_PROTECTED);
+    g_cvDiscordWebhook = CreateConVar("discrelay_discordwebhook", "", "Webhook for discord channel (needed for discrelay_servertodiscord)", FCVAR_PROTECTED);
 
     // IDs
     g_cvDiscordServerId = CreateConVar("discrelay_discordserverid", "", "Discord Server Id, required for discord to server");
     g_cvChannelId = CreateConVar("discrelay_channelid", "", "Channel Id for discord to server (This channel would be the one where the plugin check for messages to send to the server)");
     g_cvRCONChannelId = CreateConVar("discrelay_rcon_channelid", "", "Channel ID where rcon commands should be sent");
-    g_cvRCONWebhook = CreateConVar("discrelay_rcon_webhook", "", "Webhook for rcon reponses, required for discrelay_rcon_printreponse");
+    g_cvRCONWebhook = CreateConVar("discrelay_rcon_webhook", "", "Webhook for rcon reponses, required for discrelay_rcon_printreponse", FCVAR_PROTECTED);
 
     // Switches
     g_cvServerToDiscord = CreateConVar("discrelay_servertodiscord", "1", "Enables messages sent in the server to be forwarded to discord");
@@ -424,42 +424,39 @@ public void PrintToDiscord(int client, const char[] color, const char[] msg, any
         return;
     if(!g_cvMessage.BoolValue)
         return;
-    
+
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+        return;
+
     char clientName[32];
-    GetClientName(client, clientName, 32);
-    
+    GetClientName(client, clientName, sizeof(clientName));
+
     DiscordWebHook hook = new DiscordWebHook(g_sDiscordWebhook);
-    
     hook.SlackMode = true;
 
     if(g_cvServerToDiscordAvatars.BoolValue)
         hook.SetAvatar(playersdata[client].avatarurl);
-    
+
     char steamid1[64];
     GetClientAuthId(client, AuthId_Steam2, steamid1, sizeof(steamid1));
     char buffer[128];
-    Format(buffer, 128, "%s [%s]", clientName, steamid1);
+    Format(buffer, sizeof(buffer), "%s [%s]", clientName, steamid1);
     hook.SetUsername(buffer);
-    
+
     MessageEmbed Embed = new MessageEmbed();
-    
     Embed.SetColor(color);
-    
+
     char steamid[65];
     char playerName[512];
     GetClientAuthId(client, AuthId_SteamID64, steamid, sizeof(steamid));
     Format(playerName, sizeof(playerName), "[%N](https://www.steamcommunity.com/profiles/%s)", client, steamid);
 
     Embed.AddField("", playerName, true);
-
     Embed.AddField("", msg, true);
-    
-    
-    hook.Embed(Embed);
 
+    hook.Embed(Embed);
     hook.Send();
     delete hook;
-
 }
 
 public void PrintToDiscordSay(int client, const char[] msg, any ...)
@@ -610,22 +607,19 @@ public void OnDiscordMessageSent(DiscordBot bot, DiscordChannel chl, DiscordMess
     char id[20];
     chl.GetID(id, sizeof(id));
         
-    if(StrEqual(id, g_sChannelId))
+    if (StrEqual(id, g_sChannelId))
     {
         char message[512];
-        char discorduser[32], discriminator[6];
+        char discorduser[64];
         discordmessage.GetContent(message, sizeof(message));
-        author.GetUsername(discorduser, sizeof(discorduser));
-        author.GetDiscriminator(discriminator, sizeof(discriminator));
-    
-        CPrintToChatAll("%s[%sDiscord%s] %s%s%s#%s%s%s: %s", 	g_msg_textcol, g_msg_varcol, g_msg_textcol,
-        														g_msg_varcol, discorduser, g_msg_textcol,
-        														g_msg_varcol, discriminator, g_msg_textcol,
-        														message);
+        author.GetDisplayName(discorduser, sizeof(discorduser));
+
+        PrintToChatAll("\x07ffffff[\x077289daDiscord\x07ffffff] \x0799aab5%s\x07ffffff : \x07ffffff%s", discorduser, message);
+
         delete author;
-#if defined DEBUG
-        LogError("Printing message '%s' from '%s#%s' to server chat", message, discorduser, discriminator);
-#endif
+    #if defined DEBUG
+        LogError("Printing message '%s' from '%s' to server chat", message, discorduser);
+    #endif
     }
     if(StrEqual(id, g_sRCONChannelId))
     {
@@ -679,14 +673,18 @@ stock void SteamAPIRequest(int client)
 
 stock void SteamResponse_Callback(HTTPResponse response, int client)
 {
-    if (response.Status != HTTPStatus_OK){
-        LogError("SteamAPI request fail, HTTPSResponse code %i", response.Status);
-		    /*connection message delayed so steamapi has time to fetch what it needs*/
-		//If there is an error, still send connection message.
-    	if(g_cvConnectMessage.BoolValue)
-        	PrintToDiscord(client, GREEN, "connected");
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
         return;
     }
+
+    if (response.Status != HTTPStatus_OK){
+        LogError("SteamAPI request fail, HTTPSResponse code %i", response.Status);
+        if(g_cvConnectMessage.BoolValue)
+            PrintToDiscord(client, GREEN, "connected");
+        return;
+    }
+
     JSONObject objects = view_as<JSONObject>(response.Data);
     JSONObject Response = view_as<JSONObject>(objects.Get("response"));
     JSONArray players = view_as<JSONArray>(Response.Get("players"));
@@ -698,8 +696,7 @@ stock void SteamResponse_Callback(HTTPResponse response, int client)
         player.GetString("avatarmedium", playersdata[client].avatarurl, sizeof(playerData::avatarurl));
         delete player;
     }
- 
-    /*connection message delayed so steamapi has time to fetch what it needs*/
+
     if(g_cvConnectMessage.BoolValue)
         PrintToDiscord(client, GREEN, "connected");
 }
@@ -746,4 +743,4 @@ void GetHostName(char[] str, int size)
         }
     }
     GetConVarString(hHostName, str, size);
-}  
+}

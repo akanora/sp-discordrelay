@@ -10,7 +10,7 @@ Place discordrelay.smx inside of `./cstrike/addons/sourcemod/plugins` and update
 
 SteamWorks - https://forums.alliedmods.net/showthread.php?t=229556
 
-discord-api - https://github.com/Cruze03/sourcemod-discord
+discord-api - https://github.com/akanora/sourcemod-discord
 
 *Note - If you plan to send messages/requests to the server from discord ensure you have Message Intents enabled in the app dashboard. [^1]
 ![unknown](https://user-images.githubusercontent.com/42725021/191847732-36a08338-ca11-4ae3-8584-ddc9a308400a.png)
